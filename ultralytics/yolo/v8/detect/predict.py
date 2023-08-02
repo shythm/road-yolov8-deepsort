@@ -131,6 +131,8 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
       if key not in identities:
         data_deque.pop(key)
 
+    boxes = []
+    
     for i, box in enumerate(bbox):
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
@@ -163,10 +165,33 @@ def draw_boxes(img, bbox, names,object_id, identities=None, offset=(0, 0)):
             thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
             # draw trails
             cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
-    return img
+            
+        boxes.append((id, obj_name, center[0], center[1]))
+            
+    return boxes
 
 
 class DetectionPredictor(BasePredictor):
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        
+        self.frame_index = 0
+        self.results = []
+        self.callbacks['on_predict_batch_start'] = [self.handle_predict_batch_start]
+        self.callbacks['on_predict_end'] = [self.handle_predict_end]
+        
+    def handle_predict_batch_start(self, myself):
+        myself.frame_index += 1
+
+    def handle_predict_end(self, myself):
+        f = open(self.save_dir / 'output.csv', 'w')
+        
+        f.write("frame,id,class,x,y\n")
+        for res in self.results:
+            frame, (id, cls, x, y) = res
+            f.write(f"{frame},{id},{cls},{x},{y}\n")
+        f.close()
 
     def get_annotator(self, img):
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
@@ -238,7 +263,9 @@ class DetectionPredictor(BasePredictor):
             identities = outputs[:, -2]
             object_id = outputs[:, -1]
             
-            draw_boxes(im0, bbox_xyxy, self.model.names, object_id,identities)
+            self.results.extend(
+                (self.frame_index, boxes) for boxes 
+                in draw_boxes(im0, bbox_xyxy, self.model.names, object_id,identities))
 
         return log_string
 
